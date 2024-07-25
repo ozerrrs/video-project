@@ -8,6 +8,7 @@ const path = require('path');
 const dir = './video';
 const copyDir = './copy-video'
 const AsyncLock = require("async-lock");
+const { rejects } = require('assert');
 var lock = new AsyncLock();
 // //empty copy_video
 // empty_copy_video(fs,path,copyDir);
@@ -18,15 +19,11 @@ var lock = new AsyncLock();
 
 
 //  File of video Divided by 2 and send the the copy_video
-function cutTheFile(fs, path, dir, ffmpeg, copyDir) {
-    lock.acquire("key1", function (done) {
-        fs.readdir(dir, (err, files) => {
-            if (err) {
-                return console.error('Error reading directory', err);
-            }
-
+async function cutTheFile() {
+    try {
+        fs.readdir(dir, async (err, files) => {
             const mp4Files = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
-            mp4Files.forEach(file => {
+            const promises = mp4Files.map(file => new Promise((resolve, reject) => {
                 const baseName = path.basename(file, path.extname(file));
                 const outputFirstHalf = `${copyDir}/${baseName}_cut1.mp4`;
                 const outputSecondHalf = `${copyDir}/${baseName}_cut2.mp4`;
@@ -34,7 +31,7 @@ function cutTheFile(fs, path, dir, ffmpeg, copyDir) {
 
                 ffmpeg.ffprobe(videoFilePath, (err, metaData) => {
                     if (err) {
-                        console.error(err);
+                        reject(err);
                         return;
                     }
 
@@ -47,115 +44,116 @@ function cutTheFile(fs, path, dir, ffmpeg, copyDir) {
                         .outputOptions([`-t ${halfDuration}`])
                         .noAudio()
                         .output(outputFirstHalf)
-                        .on("end", () => console.log("First part done"))
-                        .on('error', (err) => console.error(err))
-                        .run();
-
-                    ffmpeg()
-                        .input(videoFilePath)
-                        .inputOptions([`-ss ${halfDuration}`])
-                        .outputOptions([`-t ${halfDuration}`])
-                        .noAudio()
-                        .output(outputSecondHalf)
-                        .on("end", () => console.log("Second part done"))
-                        .on('error', (err) => console.error(err))
+                        .on("end", () => {
+                            console.log("First part done");
+                            ffmpeg()
+                                .input(videoFilePath)
+                                .inputOptions([`-ss ${halfDuration}`])
+                                .outputOptions([`-t ${halfDuration}`])
+                                .noAudio()
+                                .output(outputSecondHalf)
+                                .on("end", () => {
+                                    console.log("Second part done");
+                                    resolve(); // Resolve promise when both parts are done
+                                })
+                                .on('error', (err) => reject(err))
+                                .run();
+                        })
+                        .on('error', (err) => reject(err))
                         .run();
                 });
-            });
-        });
-        setTimeout(function () { done(); }, 10000)
-    }, function (err, ret) { console.log("cut release") }, {});
+            }));
+
+            await Promise.all(promises); // Wait for all files to be processed
+        }); // Asynchronous read directory
+    } catch (err) {
+        console.error('Error occurred in cutTheFile:', err);
+    }
 }
 //İf video name contain _cut1 ,video will more slow else video name contain _cut2 , vide will more fast
-function videoSlowAndFast(fs, path, copyDir, ffmpeg) {
-    lock.acquire("key1", function (done) {
-        fs.readdir(copyDir, (err, files) => {
-            if (err) {
-                return console.error('Error reading directory:', err);
+async function videoSlowAndFast() {console.log("ayse")
+    try {
+        fs.readdir(dir, async (err, files) => { // Asynchronous directory read
+
+        const mp4Files = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
+        const promises = mp4Files.map(file => new Promise((resolve, reject) => {
+            const baseName = path.basename(file, path.extname(file));
+             if (baseName.indexOf("_cut1") !== -1) {
+                const deletedLoc =  path.join(dir, file);
+                const inputFile = deletedLoc;
+                const outputFile = path.resolve(`${copyDir}/${baseName}_slow.mp4`);
+                
+
+                ffmpeg(inputFile)
+                    .videoFilters('setpts=(PTS-STARTPTS)/0.5')
+                    .audioFilters('atempo=0.5')
+                    .output(outputFile)
+                    .on('end', async () => {
+                        console.log('FFmpeg slow command executed successfully.');
+                        try {
+                            await fs.unlink(deletedLoc);
+                            console.log("deleted");
+                            resolve();
+                        } catch (err) {
+                            reject(err);
+                        }
+                    })
+                    .on('error', (err) => {
+                        console.error(`Error executing FFmpeg slow command: ${err.message}`);
+                        reject(err);
+                    })
+                    .run();
+            } else if (baseName.indexOf("_cut2") !== -1) {
+                const deletedLoc = path.resolve(`${copyDir}/${file}`);
+                const inputFile = deletedLoc;
+                const outputFile = path.resolve(`${copyDir}/${baseName}_fast.mp4`);
+
+                ffmpeg(inputFile)
+                    .videoFilters('setpts=(PTS-STARTPTS)/3')
+                    .audioFilters('atempo=3')
+                    .output(outputFile)
+                    .on('end', async () => {
+                        console.log('FFmpeg fast command executed successfully.');
+                        try {
+                            await fs.unlink(deletedLoc);
+                            console.log("deleted");
+                            resolve();
+                        } catch (err) {
+                            reject(err);
+                        }
+                    })
+                    .on('error', (err) => {
+                        console.error(`Error executing FFmpeg fast command: ${err.message}`);
+                        reject(err);
+                    })
+                    .run();
             }
+        }));
 
-            const mp4Files = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
-
-            mp4Files.forEach(file => {
-                const baseName = path.basename(file, path.extname(file));
-                if (baseName.indexOf("_cut1") != -1) {
-                    const deletedLoc = `${copyDir}/${file}`;
-                    const inputFile = path.resolve(`${deletedLoc}`);
-                    const outputFile = path.resolve(`${copyDir}/${baseName}_slow.mp4`);
-                    ffmpeg(inputFile)
-                        .videoFilters('setpts=(PTS-STARTPTS)/0.5')
-                        .audioFilters('atempo=0.5')
-                        .output(outputFile)
-                        .on('end', () => {
-                            console.log('FFmpeg command executed successfully.');
-                            fs.unlink(`${deletedLoc}`, function (err) {
-                                console.log("deleted ")
-
-                            })
-                        })
-
-                        .on('error', (err) => {
-                            console.error(`Error executing FFmpeg command: ${err.message}`);
-                        })
-
-                        .run();
-
-
-
-
-                } else if (baseName.indexOf("_cut2") != -1) {
-                    const deletedLoc = `${copyDir}/${file}`;
-                    const inputFile = path.resolve(`${deletedLoc}`);
-                    const outputFile = path.resolve(`${copyDir}/${baseName}_fast.mp4`);
-                    ffmpeg(inputFile)
-                        .videoFilters('setpts=(PTS-STARTPTS)/3')
-                        .audioFilters('atempo=3')
-                        .output(outputFile)
-                        .on('end', () => {
-                            console.log('FFmpeg command executed successfully.');
-                            fs.unlink(`${deletedLoc}`, function (err) {
-                                console.log("deleted ")
-
-                            })
-                        })
-
-                        .on('error', (err) => {
-                            console.error(`Error executing FFmpeg command: ${err.message}`);
-                        })
-
-                        .run();
-
-                } else {
-                    console.error('Error reading directory:', err);
-
-                }
-
-            });
-        });
-        setTimeout(function () { done(); }, 10000)
-    }, function (err, ret) {
-        console.log("slow")
-    }, {});
+        await Promise.all(promises); // Wait for all promises to complete
+        console.log('All video processing complete.');
+   }); } catch (err) {
+        console.error('Error occurred in videoSlowAndFast:', err);
+    }
 }
 
-function empty_copy_video(fs, path, copyDir, lock) {
-    lock.acquire("key1", function (done) {
-        fs.readdir(copyDir, (err, files) => {
-            if (err) throw err;
-
+async function empty_copy_video() {
+    try {
+        fs.readdir(copyDir, async (err, files) => {
             for (const file of files) {
-                fs.unlink(path.join(copyDir, file), (err) => {
+                const filePath = path.join(copyDir, file);
+                fs.unlink(filePath, (err) => {
                     if (err) throw err;
-                });
+                    console.log('path/file.txt was deleted');
+                }); // Asynchronous delete
             }
+            console.log('Directory emptied successfully.');
         });
-        setTimeout(function () {
-            done();
-        }, 10000)
-    }, function (err, ret) {
-        console.log("empty")
-    }, {});
+    } catch (err) {
+        console.error('Error occurred:', err);
+    }
 }
+
 function fadeEffect(fs, path, copyDir, lock) {
     lock.acquire("key1", function (done) {
         fs.readdir(copyDir, (err, files) => {
@@ -225,26 +223,26 @@ function fadeEffect(fs, path, copyDir, lock) {
     }, {});
 
 }
-function mergeVideo(fs, path, dir, ffmpeg, copyDir,lock){
+function mergeVideo(fs, path, dir, ffmpeg, copyDir, lock) {
     lock.acquire("key1", function (done) {
-        const outputFile =  `${dir}/merged_output.mp4`;
+        const outputFile = `${dir}/merged_output.mp4`;
 
         fs.readdir(copyDir, (err, files) => {
             if (err) {
                 return console.error('Error reading directory', err);
             }
-        
+
             const videoFiles = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
             if (videoFiles.length === 0) {
                 return console.log('No video files found to merge');
             }
-        
+
             const command = ffmpeg();
             videoFiles.forEach(file => {
                 const videoFilePath = path.join(copyDir, file);
                 command.input(videoFilePath);
             });
-        
+
             command
                 .on('end', () => console.log("Merge is done"))
                 .on('error', (err) => console.log('Error:', err))
@@ -308,25 +306,23 @@ function mergeVideo(fs, path, dir, ffmpeg, copyDir,lock){
 
 
 
-function main() {
+async function main() {
 
 
-        // //empty copy_video
-        empty_copy_video(fs, path, copyDir, lock)
-        // // Firsly divide video
-        cutTheFile(fs, path, dir, ffmpeg, copyDir, lock)
-        // //Slow fast active
-        videoSlowAndFast(fs, path, copyDir, ffmpeg, lock)
+    // //empty copy_video
+    await empty_copy_video()
+    // // Firsly divide video
+     await cutTheFile()
 
-        fadeEffect(fs, path, copyDir, lock)
+     console.log("ayse")
+    // // //Slow fast active
+    // await videoSlowAndFast()
 
-        mergeVideo(fs, path, dir, ffmpeg, copyDir,lock)
-      // mergeSoftVideo(fs, path, dir, ffmpeg, copyDir)
-        empty_copy_video(fs, path, copyDir, lock)
-       
+    // fadeEffect(fs, path, copyDir, lock)
 
-
-
+    // mergeVideo(fs, path, dir, ffmpeg, copyDir, lock)
+    // // mergeSoftVideo(fs, path, dir, ffmpeg, copyDir)
+    // empty_copy_video(fs, path, copyDir, lock)
 
 }
 
