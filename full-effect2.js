@@ -206,7 +206,18 @@ async function fadeEffect() {
                     } else if (baseName.includes("fast")) {
                         const outputFile = path.resolve(`${copyDir}/${baseName}_fade_out.mp4`);
                         ffmpeg(inputFile)
-                            .videoFilters('fade=out:st=0:d=0.5')
+                            .videoFilters([
+                                {
+                                    filter: 'xfade',
+                                    options: {
+                                      transition: 'smoothup ', // distance: dissolve circleclose hblur
+                                      duration: 4,
+                                      offset: Math.max(0, duration - 2) // Adjust offset to start transition before the end
+                                    },
+                                    inputs: ['0:v', '1:v'],
+                                    outputs: 'v'
+                                  }
+                            ])
                             .output(outputFile)
                             .on('end', () => {
                                 fs.unlink(deletedLoc, err => {
@@ -233,39 +244,71 @@ async function fadeEffect() {
 }
 
 async function mergeVideo() {
-    return new Promise((resolve, reject) => {
-        const outputFile = `${dir}/merged_output.mp4`;
+    const outputFile = `${dir}/merged_output.mp4`;
 
-        fs.readdir(copyDir, (err, files) => {
-            if (err) {
-                return reject('Error reading directory: ' + err);
-            }
+    try {
+        const files = await fs.promises.readdir(copyDir);
+        const videoFiles = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
 
-            const videoFiles = files.filter(file => path.extname(file).toLowerCase() === '.mp4');
-            if (videoFiles.length === 0) {
-                return resolve('No video files found to merge');
-            }
+        if (videoFiles.length === 0) {
+            return 'No video files found to merge';
+        }
 
-            const command = ffmpeg();
-            videoFiles.forEach(file => {
-                const videoFilePath = path.join(copyDir, file);
-                command.input(videoFilePath);
+        // Function to merge two videos
+        const mergeTwoVideos = (video1, video2, output) => {
+            return new Promise((resolve, reject) => {
+                ffmpeg()
+                    .input(video1)
+                    .input(video2)
+                    .on('end', () => {
+                        console.log(`Merged ${path.basename(video1)} and ${path.basename(video2)} into ${path.basename(output)}`);
+                        resolve(output);
+                    })
+                    .on('error', (err) => {
+                        console.error(`Error merging ${path.basename(video1)} and ${path.basename(video2)}:`, err);
+                        reject(err);
+                    })
+                    .mergeToFile(output);
             });
+        };
 
-            command
-                .on('end', () => {
-                    console.log("Merge is done");
-                    resolve("Merge is done");
-                })
-                .on('error', (err) => {
-                    console.error('Error:', err);
-                    reject('Error: ' + err);
-                })
-                .mergeToFile(outputFile);
-        });
-    });
+        // Process videos in pairs
+        let tempFiles = [];
+        for (let i = 0; i < videoFiles.length; i += 2) {
+            const video1 = path.join(copyDir, videoFiles[i]);
+            const video2 = i + 1 < videoFiles.length ? path.join(copyDir, videoFiles[i + 1]) : null;
+            
+            const tempOutput = path.join(copyDir, `temp_merged_${Math.floor(i / 2)}.mp4`);
+            tempFiles.push(tempOutput);
+            
+            if (video2) {
+                await mergeTwoVideos(video1, video2, tempOutput);
+            } else {
+                // If odd number of videos, copy the last video as is
+                await fs.promises.copyFile(video1, tempOutput);
+                console.log(`Copied ${path.basename(video1)} as ${path.basename(tempOutput)}`);
+            }
+        }
+
+
+        for (const tempFile of videoFiles) {
+            const filePath = path.join(copyDir, tempFile);
+            console.log(filePath);
+            fs.unlink(filePath, err => {
+                if (err) return reject(err);
+            });
+        }
+
+        return 'Merge is done';
+    } catch (err) {
+        console.error('Error:', err);
+        return 'Error: ' + err;
+    }
 }
 
+async function mergeWithSmoothEffect(){
+
+}
 
 
 async function main() {
@@ -285,14 +328,14 @@ async function main() {
         const processMessage = await videoSlowAndFast();
         console.log(processMessage);
 
-        const fadeMessage = await fadeEffect();
-        console.log(fadeMessage);
+        // const fadeMessage = await fadeEffect();
+        // console.log(fadeMessage);
 
         const mergeMessage = await mergeVideo();
         console.log(mergeMessage);
 
-        const emptyMessage2 = await empty_copy_video();
-        console.log(emptyMessage2);
+        // const emptyMessage2 = await empty_copy_video();
+        // console.log(emptyMessage2);
 
 
 
