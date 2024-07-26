@@ -19,7 +19,6 @@ var lock = new AsyncLock();
 
 //  File of video Divided by 2 and send the the copy_video
 function cutTheFile(fs, path, dir, ffmpeg, copyDir) {
-    lock.acquire("key1", function (done) {
         fs.readdir(dir, (err, files) => {
             if (err) {
                 return console.error('Error reading directory', err);
@@ -63,12 +62,11 @@ function cutTheFile(fs, path, dir, ffmpeg, copyDir) {
                 });
             });
         });
-        setTimeout(function () { done(); }, 10000)
-    }, function (err, ret) { console.log("cut release") }, {});
+       
 }
 //İf video name contain _cut1 ,video will more slow else video name contain _cut2 , vide will more fast
 function videoSlowAndFast(fs, path, copyDir, ffmpeg) {
-    lock.acquire("key1", function (done) {
+    
         fs.readdir(copyDir, (err, files) => {
             if (err) {
                 return console.error('Error reading directory:', err);
@@ -132,14 +130,10 @@ function videoSlowAndFast(fs, path, copyDir, ffmpeg) {
 
             });
         });
-        setTimeout(function () { done(); }, 10000)
-    }, function (err, ret) {
-        console.log("slow")
-    }, {});
+        
 }
 
 function empty_copy_video(fs, path, copyDir, lock) {
-    lock.acquire("key1", function (done) {
         fs.readdir(copyDir, (err, files) => {
             if (err) throw err;
 
@@ -149,12 +143,7 @@ function empty_copy_video(fs, path, copyDir, lock) {
                 });
             }
         });
-        setTimeout(function () {
-            done();
-        }, 10000)
-    }, function (err, ret) {
-        console.log("empty")
-    }, {});
+        
 }
 function fadeEffect(fs, path, copyDir, lock) {
     lock.acquire("key1", function (done) {
