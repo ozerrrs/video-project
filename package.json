@@ -3,6 +3,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "async-lock": "^1.4.1",
+    "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.3"
   }
 }

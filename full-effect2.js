@@ -1,8 +1,11 @@
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const ffprobePath = require('@ffprobe-installer/ffprobe').path;
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPathStatic = require('ffmpeg-static');
+
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
+ffmpeg.setFfmpegPath(ffmpegPathStatic)
 const fs = require('fs');
 const path = require('path');
 const dir = './video';
@@ -307,6 +310,85 @@ async function mergeVideo() {
 }
 
 async function mergeWithSmoothEffect(){
+    try {
+        const isMP4 = (file) => path.extname(file).toLowerCase() === '.mp4';
+          // Read the directory and get the list of MP4 files
+          const files = await fs.promises.readdir(copyDir);
+          const mp4Files = files.filter(isMP4).map(file => path.join(copyDir, file));
+      
+          // Ensure there are at least two MP4 files for the transition
+          if (mp4Files.length < 2) {
+            console.error('Not enough MP4 files in the directory');
+            return;
+          }
+      
+          let input1 = mp4Files[0];
+          let outputFile;
+          const finalOutputFile = path.join(dir, `resultvideo.mp4`);
+
+          for (let i = 1; i < mp4Files.length; i++) {
+            const input2 = mp4Files[i];
+            outputFile = (i === mp4Files.length - 1) ? finalOutputFile : path.join(copyDir, `${i}_video.mp4`);
+      
+            try {
+              // Wait for ffprobe to get metadata
+              const metadata = await new Promise((resolve, reject) => {
+                ffmpeg.ffprobe(input1, (err, metadata) => {
+                  if (err) {
+                    reject(err);
+                  } else {
+                    resolve(metadata);
+                  }
+                });
+              });
+      
+              const duration = metadata.format.duration;
+      
+              // Process video with ffmpeg
+              await new Promise((resolve, reject) => {
+                ffmpeg()
+                  .input(input1)
+                  .input(input2)
+                  .complexFilter([
+                    {
+                      filter: 'xfade',
+                      options: {
+                        transition: 'smoothup', // transition type
+                        duration: 4,
+                        offset: Math.max(0, duration - 2) // Adjust offset to start transition before the end
+                      },
+                      inputs: ['0:v', '1:v'],
+                      outputs: 'v'
+                    }
+                  ])
+                  .outputOptions([
+                    '-map', '[v]',
+                    '-map', '0:a?',
+                    '-map', '1:a?'
+                  ])
+                  .outputOptions('-pix_fmt yuv420p') // Ensure compatibility with most players
+                  .output(outputFile)
+                  .on('end', () => {
+                    console.log(`Processing finished for video ${i}!`);
+                    input1 = outputFile; // Set the output file as the new input for the next iteration
+                    resolve();
+                  })
+                  .on('error', (err) => {
+                    console.error('An error occurred: ' + err.message);
+                    reject(err);
+                  })
+                  .run();
+              });
+
+
+      
+            } catch (err) {
+              console.error('Error:', err);
+            }
+          }
+        } catch (err) {
+          console.error('Error reading directory:', err);
+        }
 
 }
 
@@ -334,8 +416,11 @@ async function main() {
         const mergeMessage = await mergeVideo();
         console.log(mergeMessage);
 
-        // const emptyMessage2 = await empty_copy_video();
-        // console.log(emptyMessage2);
+        const mergeSmooth = await mergeWithSmoothEffect();
+        console.log(mergeSmooth);
+
+        const emptyMessage2 = await empty_copy_video();
+        console.log(emptyMessage2);
 
 
 
